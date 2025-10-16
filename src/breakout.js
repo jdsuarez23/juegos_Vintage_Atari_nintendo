@@ -1,4 +1,4 @@
-// Breakout (Atari 1976) - Romper ladrillos con pelota
+// Breakout (Atari 1976) - Implementación fiel al original
 // Controles: A/D o Flechas para mover paleta, Espacio para lanzar, R reinicia
 
 import {Input} from './engine.js';
@@ -11,7 +11,7 @@ let ball; // {x, y, vx, vy, r, stuck}
 let bricks = []; // {x, y, w, h, color, hits, alive}
 let score = 0, lives = 3, level = 1, best = 0, gameOver = false;
 let speedFactor = 1;
-const MAX_SPEED_FACTOR = 2.0, MIN_SPEED_FACTOR = 0.5;
+const MAX_SPEED_FACTOR = 2.5, MIN_SPEED_FACTOR = 0.5;
 let _incHeld = false, _decHeld = false;
 
 const PADDLE_W = 100, PADDLE_H = 16;
@@ -45,19 +45,25 @@ export function restart() {
 function reset() {
   paddle = { x: W / 2 - PADDLE_W / 2, y: H - 60, w: PADDLE_W, h: PADDLE_H, vx: 0 };
   ball = { x: W / 2, y: H - 80, vx: 0, vy: 0, r: BALL_R, stuck: true };
-  buildBricks();
-  speedFactor = 1;
+  buildLevel(level);
+  speedFactor = 1 + (level - 1) * 0.15;
 }
 
-function buildBricks() {
+function buildLevel(level) {
   bricks = [];
-  for (let row = 0; row < BRICK_ROWS; row++) {
+  const rows = Math.min(BRICK_ROWS + Math.floor((level - 1) / 2), 12);
+  
+  for (let row = 0; row < rows; row++) {
     for (let col = 0; col < BRICK_COLS; col++) {
       const x = BRICK_OFFSET_LEFT + col * (BRICK_W + BRICK_PADDING);
       const y = BRICK_OFFSET_TOP + row * (BRICK_H + BRICK_PADDING);
       const color = COLORS[row % COLORS.length];
-      const hits = row < 2 ? 2 : 1; // primeras 2 filas necesitan 2 golpes
-      bricks.push({ x, y, w: BRICK_W, h: BRICK_H, color, hits, maxHits: hits, alive: true });
+      const hits = Math.min(1 + Math.floor(row / 2) + Math.floor(level / 3), 4);
+      
+      bricks.push({ 
+        x, y, w: BRICK_W, h: BRICK_H, 
+        color, hits, maxHits: hits, alive: true 
+      });
     }
   }
 }
@@ -75,17 +81,28 @@ export function update(dt) {
   updateBall(dt);
   checkCollisions();
 
-  // Victoria - todos los ladrillos destruidos
   if (bricks.every(b => !b.alive)) {
-    level++;
-    score += 1000 * level;
-    saveBest();
-    reset();
+    nextLevel();
   }
 }
 
+function nextLevel() {
+  level++;
+  score += 1000 * level;
+  saveBest();
+  
+  speedFactor = 1 + (level - 1) * 0.15;
+  if (level % 3 === 0 && paddle.w > 60) {
+    paddle.w -= 5;
+  }
+  
+  buildLevel(level);
+  ball.stuck = true;
+  ball.vx = 0;
+  ball.vy = 0;
+}
+
 function handleInput(dt) {
-  // Control velocidad
   if (input.pressed('=', '+')) {
     if (!_incHeld) {
       speedFactor = Math.min(MAX_SPEED_FACTOR, speedFactor + 0.1);
@@ -100,15 +117,13 @@ function handleInput(dt) {
     }
   } else _decHeld = false;
 
-  // Movimiento paleta
   paddle.vx = 0;
   if (input.pressed('a', 'arrowleft')) paddle.vx = -450 * speedFactor;
   else if (input.pressed('d', 'arrowright')) paddle.vx = 450 * speedFactor;
 
-  // Lanzar bola
   if (ball.stuck && input.pressed(' ')) {
     if (!handleInput._held) {
-      const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.6;
+      const angle = -Math.PI / 2 + (Math.random() - 0.5) * 0.5;
       const speed = 320 * speedFactor;
       ball.vx = Math.cos(angle) * speed;
       ball.vy = Math.sin(angle) * speed;
@@ -163,93 +178,99 @@ function updateBall(dt) {
 }
 
 function checkCollisions() {
-  // Colisión con paleta
-  if (ball.y + ball.r >= paddle.y &&
+  // Colisión con paleta - IMPLEMENTACIÓN CORREGIDA
+  if (ball.vy > 0 && // Solo cuando la pelota está bajando
+      ball.y + ball.r >= paddle.y &&
       ball.y - ball.r <= paddle.y + paddle.h &&
       ball.x + ball.r >= paddle.x &&
-      ball.x - ball.r <= paddle.x + paddle.w &&
-      ball.vy > 0) {
+      ball.x - ball.r <= paddle.x + paddle.w) {
     
-    // Ángulo basado en dónde golpea la paleta
-    const hitPos = (ball.x - paddle.x) / paddle.w; // 0 a 1
-    const angle = Math.PI - (hitPos * Math.PI * 0.7 + Math.PI * 0.15); // rango de ángulos
-    const speed = Math.hypot(ball.vx, ball.vy) * 1.02; // acelerar ligeramente
+    // Calcular punto de impacto relativo (-1 a 1)
+    const hitPos = ((ball.x - paddle.x) / paddle.w) * 2 - 1;
+    
+    // Limitar el ángulo máximo a 75 grados
+    const maxAngle = Math.PI * 5/12; // 75 grados
+    const angle = Math.PI - (hitPos * maxAngle + Math.PI / 2);
+    
+    // Mantener velocidad pero cambiar dirección
+    const speed = Math.hypot(ball.vx, ball.vy);
     ball.vx = Math.cos(angle) * speed;
     ball.vy = Math.sin(angle) * speed;
-    ball.y = paddle.y - ball.r - 0.1; // asegurar separación
+    
+    // Asegurar que la pelota siempre suba después del rebote
+    if (ball.vy > 0) ball.vy = -ball.vy;
+    
+    // Ajustar posición para evitar múltiples colisiones
+    ball.y = paddle.y - ball.r - 1;
+    
+    // Añadir un pequeño impulso para evitar rebotes planos
+    if (Math.abs(ball.vy) < 100) {
+      ball.vy = -150 * speedFactor;
+    }
   }
 
-  // Colisión con ladrillos - verificar solo el más cercano
-  let closestBrick = null;
-  let closestDist = Infinity;
-  
+  // Colisión con ladrillos
   for (const brick of bricks) {
     if (!brick.alive) continue;
-
-    // Verificar colisión AABB
+    
+    // Detectar colisión AABB
     if (ball.x + ball.r > brick.x &&
         ball.x - ball.r < brick.x + brick.w &&
         ball.y + ball.r > brick.y &&
         ball.y - ball.r < brick.y + brick.h) {
       
+      // Determinar dirección de rebote
+      const ballCenterX = ball.x;
+      const ballCenterY = ball.y;
       const brickCenterX = brick.x + brick.w / 2;
       const brickCenterY = brick.y + brick.h / 2;
-      const dist = Math.hypot(ball.x - brickCenterX, ball.y - brickCenterY);
       
-      if (dist < closestDist) {
-        closestDist = dist;
-        closestBrick = brick;
-      }
-    }
-  }
-  
-  if (closestBrick) {
-    const brick = closestBrick;
-    
-    brick.hits--;
-    if (brick.hits <= 0) {
-      brick.alive = false;
-      score += 100 * level;
-      saveBest();
-    } else {
-      score += 50 * level;
-    }
-
-    // Determinar lado de colisión basado en velocidad y posición
-    const brickCenterX = brick.x + brick.w / 2;
-    const brickCenterY = brick.y + brick.h / 2;
-    const dx = ball.x - brickCenterX;
-    const dy = ball.y - brickCenterY;
-    
-    const overlapLeft = (ball.x + ball.r) - brick.x;
-    const overlapRight = (brick.x + brick.w) - (ball.x - ball.r);
-    const overlapTop = (ball.y + ball.r) - brick.y;
-    const overlapBottom = (brick.y + brick.h) - (ball.y - ball.r);
-
-    const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
-
-    // Rebote con mejor detección de lado
-    if (minOverlap === overlapTop && ball.vy > 0) {
-      ball.vy = -Math.abs(ball.vy);
-      ball.y = brick.y - ball.r - 0.1;
-    } else if (minOverlap === overlapBottom && ball.vy < 0) {
-      ball.vy = Math.abs(ball.vy);
-      ball.y = brick.y + brick.h + ball.r + 0.1;
-    } else if (minOverlap === overlapLeft && ball.vx > 0) {
-      ball.vx = -Math.abs(ball.vx);
-      ball.x = brick.x - ball.r - 0.1;
-    } else if (minOverlap === overlapRight && ball.vx < 0) {
-      ball.vx = Math.abs(ball.vx);
-      ball.x = brick.x + brick.w + ball.r + 0.1;
-    } else {
-      // Caso ambiguo - usar posición relativa
-      if (Math.abs(dx / brick.w) > Math.abs(dy / brick.h)) {
+      // Calcular distancias a cada borde
+      const distLeft = Math.abs(ballCenterX - brick.x);
+      const distRight = Math.abs(ballCenterX - (brick.x + brick.w));
+      const distTop = Math.abs(ballCenterY - brick.y);
+      const distBottom = Math.abs(ballCenterY - (brick.y + brick.h));
+      
+      // Encontrar la distancia mínima
+      const minDist = Math.min(distLeft, distRight, distTop, distBottom);
+      
+      // Rebote según el borde más cercano
+      if (minDist === distLeft || minDist === distRight) {
         ball.vx = -ball.vx;
-        ball.x = dx > 0 ? brick.x + brick.w + ball.r + 0.1 : brick.x - ball.r - 0.1;
+        // Ajustar posición para evitar atascos
+        if (minDist === distLeft) {
+          ball.x = brick.x - ball.r - 1;
+        } else {
+          ball.x = brick.x + brick.w + ball.r + 1;
+        }
       } else {
         ball.vy = -ball.vy;
-        ball.y = dy > 0 ? brick.y + brick.h + ball.r + 0.1 : brick.y - ball.r - 0.1;
+        // Ajustar posición para evitar atascos
+        if (minDist === distTop) {
+          ball.y = brick.y - ball.r - 1;
+        } else {
+          ball.y = brick.y + brick.h + ball.r + 1;
+        }
       }
+      
+      // Reducir vida del ladrillo
+      brick.hits--;
+      if (brick.hits <= 0) {
+        brick.alive = false;
+        score += 100 * level;
+        saveBest();
+      } else {
+        score += 50 * level;
+      }
+      
+      // Aumentar velocidad ligeramente
+      const speed = Math.hypot(ball.vx, ball.vy) * 1.01;
+      const angle = Math.atan2(ball.vy, ball.vx);
+      ball.vx = Math.cos(angle) * speed;
+      ball.vy = Math.sin(angle) * speed;
+      
+      // Solo manejar una colisión por frame
+      break;
     }
   }
 }
@@ -267,9 +288,9 @@ export function draw() {
 
   // Bordes
   ctx.fillStyle = '#333';
-  ctx.fillRect(0, 0, 20, H); // izquierda
-  ctx.fillRect(W - 20, 0, 20, H); // derecha
-  ctx.fillRect(0, 0, W, 20); // arriba
+  ctx.fillRect(0, 0, 20, H);
+  ctx.fillRect(W - 20, 0, 20, H);
+  ctx.fillRect(0, 0, W, 20);
 
   // Ladrillos
   for (const brick of bricks) {
