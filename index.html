@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Mini Arcade</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --accent:#5373ff; --accent2:#ff4874; --radius:16px; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: system-ui, Arial, sans-serif; background:radial-gradient(circle at 30% 20%, #1c2534, #0d1117 65%); color:#eee; min-height:100dvh; display:flex; flex-direction:column; }
+    h1 { margin:32px 0 12px; font-size: clamp(1.9rem,4vw,2.6rem); text-align:center; letter-spacing:1px; font-weight:600; background:linear-gradient(90deg,#5fa8ff,#b389ff,#ff6fb4); -webkit-background-clip:text; background-clip:text; color:transparent; }
+    #subtitle { text-align:center; margin:0 0 28px; font-size:14px; opacity:.7; }
+
+    /* GALLERY */
+    #gallery { width:100%; max-width:1250px; margin:0 auto 50px; padding:0 32px 40px; display:grid; gap:28px; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); transition:opacity .4s, transform .4s; }
+    .card { position:relative; background:linear-gradient(145deg,#1e2531,#141a22); border:1px solid #252f3c; border-radius:var(--radius); padding:14px 14px 16px; cursor:pointer; overflow:hidden; display:flex; flex-direction:column; gap:10px; isolation:isolate; min-height:230px; }
+    .card:before { content:""; position:absolute; inset:0; background:radial-gradient(circle at 40% 30%,rgba(255,255,255,.08),transparent 70%); opacity:.9; pointer-events:none; }
+    .card:hover { transform:translateY(-6px); box-shadow:0 10px 24px -6px #000c; border-color:#304055; }
+    .thumb { flex:1; display:flex; align-items:center; justify-content:center; }
+    .thumb svg { width:86px; height:86px; filter:drop-shadow(0 4px 6px rgba(0,0,0,.4)); }
+    .card h3 { margin:0; font-size:16px; font-weight:600; letter-spacing:.5px; }
+    .genre { font-size:11px; opacity:.55; letter-spacing:1px; text-transform:uppercase; }
+    .play-badge { position:absolute; top:10px; right:10px; background:#232d3a; border:1px solid #2f3c4b; padding:4px 8px; border-radius:20px; font-size:11px; letter-spacing:.5px; display:flex; gap:4px; align-items:center; color:#82b1ff; }
+    .card:hover .play-badge { background:#2c3746; color:#fff; }
+
+    #footer { margin:auto 0 26px; text-align:center; font-size:12px; opacity:.5; padding:0 20px; }
+
+    /* GAME VIEW */
+    #gameView { position:fixed; inset:0; background:linear-gradient(160deg,#0d1117 0%,#090d12 100%); display:flex; flex-direction:column; align-items:center; gap:10px; padding:18px 26px 40px; z-index:30; opacity:0; pointer-events:none; transition:opacity .45s; }
+    #gameView.active { opacity:1; pointer-events:auto; }
+    #topBar { width:100%; max-width:1160px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    #backBtn { appearance:none; border:0; background:#1f2732; color:#e2ebff; font:600 14px system-ui; padding:10px 18px; border-radius:12px; display:inline-flex; align-items:center; gap:8px; cursor:pointer; letter-spacing:.5px; box-shadow:0 4px 10px -4px #0009 inset, 0 1px 0 #2d3642; transition:.25s background,.25s transform; }
+    #backBtn:hover { background:#2b3645; }
+    #backBtn:active { transform:translateY(2px); }
+    #currentGameTitle { font-weight:600; font-size:15px; letter-spacing:.5px; display:flex; gap:10px; align-items:center; }
+    #status { font:12px monospace; background:#1a2029; padding:6px 12px; border-radius:10px; min-height:26px; display:flex; align-items:center; letter-spacing:.5px; box-shadow:0 0 0 1px #233140; }
+
+    #canvasWrap { position:relative; border-radius:20px; overflow:hidden; box-shadow:0 20px 60px -20px #000a, 0 0 0 1px #22303d; background:#000; }
+    canvas { background:#000; outline:none; width:860px; max-width:100%; height:560px; border:0; display:block; image-rendering:pixelated; }
+
+    /* Hide default old menu (kept for fallback) */
+    #legacyMenu { display:none; }
+
+    @media (max-width:950px){ .card { min-height:200px; } canvas { width:100%; height:auto; aspect-ratio: 860/560; } #topBar { flex-wrap:wrap; } }
+  </style>
+</head>
+<body>
+  <h1>Mini Arcade</h1>
+  <p id="subtitle">Selecciona un juego para comenzar. Presiona ESC dentro del juego para ver estado, o usa el botón Volver.</p>
+
+  <!-- Gallery Grid -->
+  <div id="gallery" aria-label="Listado de juegos">
+    <!-- Cards dynamically enhanced but static markup is fine -->
+  </div>
+
+  <!-- Game View Overlay -->
+  <div id="gameView" aria-hidden="true">
+    <div id="topBar">
+      <button id="backBtn" type="button" title="Volver al menú">⟵ Volver</button>
+      <div id="currentGameTitle">Arcade</div>
+      <div id="status">Listo</div>
+    </div>
+    <div id="canvasWrap">
+      <canvas id="game" width="860" height="560" tabindex="0" aria-label="Zona de juego"></canvas>
+    </div>
+  </div>
+
+  <div id="footer">© Mini Arcade | Controles específicos visibles en el estado inferior de cada juego. Usa R para reiniciar dentro de un juego.</div>
+
+  <script type="module">
+    import {GameManager} from './src/engine.js';
+    import * as Snake from './src/snake.js';
+    import * as Tetris from './src/tetris.js';
+    import * as Invaders from './src/invaders.js';
+    import * as Asteroids from './src/asteroids.js';
+    import * as Pacman from './src/pacman.js';
+    import * as Bomberman from './src/bomberman.js';
+    import * as DonkeyKong from './src/donkeykong.js';
+    import * as Mario from './src/mario.js';
+    import * as Pong from './src/pong.js';
+    import * as Centipede from './src/centipede.js';
+    import * as BrickRace from './src/brickrace.js';
+    // Nuevos juegos de Atari
+    import * as Breakout from './src/breakout.js';
+    import * as MissileCommand from './src/missilecommand.js';
+    import * as Frogger from './src/frogger.js';
+    import * as DigDug from './src/digdug.js';
+    import * as Adventure from './src/adventure.js';
+
+    const GAME_LIST = [
+      { id:'snake', name:'Snake', mod:Snake, genre:'Clásico', icon:'S' },
+      { id:'tetris', name:'Tetris', mod:Tetris, genre:'Puzzle', icon:'▥' },
+      { id:'invaders', name:'Space Invaders', mod:Invaders, genre:'Shooter', icon:'👾' },
+      { id:'asteroids', name:'Asteroids', mod:Asteroids, genre:'Shooter', icon:'✦' },
+      { id:'pacman', name:'Pacman', mod:Pacman, genre:'Labyrinth', icon:'◕' },
+      { id:'bomberman', name:'Bomberman', mod:Bomberman, genre:'Action', icon:'💣' },
+      { id:'donkeykong', name:'Donkey Kong', mod:DonkeyKong, genre:'Plataformas', icon:'🦍' },
+      { id:'mario', name:'Super Mario', mod:Mario, genre:'Plataformas', icon:'★' },
+      { id:'pong', name:'Pong', mod:Pong, genre:'Sports', icon:'⊚' },
+      { id:'centipede', name:'Centipede', mod:Centipede, genre:'Shooter', icon:'🐛' },
+      { id:'brickrace', name:'Brick Race', mod:BrickRace, genre:'LCD', icon:'🚗' },
+      // Nuevos juegos de Atari
+      { id:'breakout', name:'Breakout', mod:Breakout, genre:'Atari', icon:'◼' },
+      { id:'missile', name:'Missile Command', mod:MissileCommand, genre:'Atari', icon:'🚀' },
+      { id:'frogger', name:'Frogger', mod:Frogger, genre:'Atari', icon:'🐸' },
+      { id:'digdug', name:'Dig Dug', mod:DigDug, genre:'Atari', icon:'⛏' },
+      { id:'adventure', name:'Adventure', mod:Adventure, genre:'Atari', icon:'🗡' }
+    ];
+
+    const gallery = document.getElementById('gallery');
+    function buildCards(){
+      gallery.innerHTML = GAME_LIST.map(g=>`<div class="card" data-game="${g.id}" tabindex="0" role="button" aria-label="Jugar ${g.name}">
+          <span class="play-badge">Jugar</span>
+          <div class="thumb">${makeSVGIcon(g.icon)}</div>
+          <div>
+            <h3>${g.name}</h3>
+            <div class="genre">${g.genre}</div>
+          </div>
+        </div>`).join('');
+    }
+    function makeSVGIcon(char){
+      return `<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'>
+        <defs>
+          <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+            <stop offset='0%' stop-color='#4b6cb7'/>
+            <stop offset='100%' stop-color='#182848'/>
+          </linearGradient>
+        </defs>
+        <rect x='4' y='4' width='92' height='92' rx='18' fill='url(#g)' stroke='#6f86d6' stroke-width='3'/>
+        <text x='50' y='58' text-anchor='middle' font-size='46' fill='#ffffff' font-family='system-ui,Arial' font-weight='600'>${char}</text>
+      </svg>`;
+    }
+    buildCards();
+
+    const canvas = document.getElementById('game');
+    const gm = new GameManager(canvas);
+    gm.start(); // loop always running; game set on selection
+
+    const gameView = document.getElementById('gameView');
+    const currentTitle = document.getElementById('currentGameTitle');
+    const statusEl = document.getElementById('status');
+
+    function openGame(id){
+      const game = GAME_LIST.find(g=>g.id===id); if(!game) return;
+      currentTitle.textContent = game.name;
+      gm.set(game.mod);
+      gameView.classList.add('active');
+      gameView.setAttribute('aria-hidden','false');
+      canvas.focus();
+    }
+
+    function closeGame(){
+      gm.current = null; // detach
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      gameView.classList.remove('active');
+      gameView.setAttribute('aria-hidden','true');
+      currentTitle.textContent = 'Arcade';
+    }
+
+    gallery.addEventListener('click', e=>{ const card=e.target.closest('.card'); if(card) openGame(card.dataset.game); });
+    gallery.addEventListener('keydown', e=>{ if((e.key==='Enter'||e.key===' ') && e.target.classList.contains('card')){ e.preventDefault(); openGame(e.target.dataset.game); } });
+    document.getElementById('backBtn').addEventListener('click', closeGame);
+
+    // Status updater
+    setInterval(()=>{ if(gm.current?.getStatus){ statusEl.textContent = gm.current.getStatus(); } }, 250);
+
+    addEventListener('keydown', e=>{ if(e.key==='Escape' && gameView.classList.contains('active')) closeGame(); });
+  </script>
+</body>
+</html>
